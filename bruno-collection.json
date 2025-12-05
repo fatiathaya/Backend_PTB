@@ -1,0 +1,153 @@
+{
+  "version": "1",
+  "name": "TB_PTB API Collection",
+  "type": "collection",
+  "items": [
+    {
+      "name": "Authentication",
+      "type": "folder",
+      "items": [
+        {
+          "name": "Register",
+          "type": "http",
+          "seq": 1,
+          "request": {
+            "method": "POST",
+            "url": "http://localhost:8000/api/register",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "application/json",
+                "enabled": true
+              },
+              {
+                "name": "Accept",
+                "value": "application/json",
+                "enabled": true
+              }
+            ],
+            "body": {
+              "mode": "json",
+              "json": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\",\n  \"password_confirmation\": \"password123\"\n}"
+            }
+          },
+          "tests": "res.status = 201;\nres.parsedBody.success = true;\nres.parsedBody.data.token != null;"
+        },
+        {
+          "name": "Login",
+          "type": "http",
+          "seq": 2,
+          "request": {
+            "method": "POST",
+            "url": "http://localhost:8000/api/login",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "application/json",
+                "enabled": true
+              },
+              {
+                "name": "Accept",
+                "value": "application/json",
+                "enabled": true
+              }
+            ],
+            "body": {
+              "mode": "json",
+              "json": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}"
+            }
+          },
+          "tests": "res.status = 200;\nres.parsedBody.success = true;\nres.parsedBody.data.token != null;\n\n// Save token to environment\nbru.setEnvVar('auth_token', res.parsedBody.data.token);"
+        },
+        {
+          "name": "Get Current User",
+          "type": "http",
+          "seq": 3,
+          "request": {
+            "method": "GET",
+            "url": "http://localhost:8000/api/user",
+            "headers": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "enabled": true
+              },
+              {
+                "name": "Accept",
+                "value": "application/json",
+                "enabled": true
+              }
+            ]
+          },
+          "tests": "res.status = 200;\nres.parsedBody.success = true;\nres.parsedBody.data != null;"
+        },
+        {
+          "name": "Update User",
+          "type": "http",
+          "seq": 4,
+          "request": {
+            "method": "PUT",
+            "url": "http://localhost:8000/api/user",
+            "headers": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "enabled": true
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json",
+                "enabled": true
+              },
+              {
+                "name": "Accept",
+                "value": "application/json",
+                "enabled": true
+              }
+            ],
+            "body": {
+              "mode": "json",
+              "json": "{\n  \"name\": \"John Updated\",\n  \"username\": \"johndoe\",\n  \"phone_number\": \"081234567890\",\n  \"gender\": \"Laki-laki\"\n}"
+            }
+          },
+          "tests": "res.status = 200;\nres.parsedBody.success = true;"
+        },
+        {
+          "name": "Logout",
+          "type": "http",
+          "seq": 5,
+          "request": {
+            "method": "POST",
+            "url": "http://localhost:8000/api/logout",
+            "headers": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "enabled": true
+              },
+              {
+                "name": "Accept",
+                "value": "application/json",
+                "enabled": true
+              }
+            ]
+          },
+          "tests": "res.status = 200;\nres.parsedBody.success = true;"
+        }
+      ]
+    }
+  ],
+  "vars": [
+    {
+      "name": "base_url",
+      "value": "http://localhost:8000",
+      "enabled": true
+    },
+    {
+      "name": "auth_token",
+      "value": "",
+      "enabled": true
+    }
+  ]
+}
+

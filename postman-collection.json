@@ -1,0 +1,534 @@
+{
+	"info": {
+		"_postman_id": "tb-ptb-api-collection",
+		"name": "TB_PTB API",
+		"description": "Collection untuk testing API TB_PTB Laravel",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Register",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201 || pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.data && jsonData.data.token) {",
+									"        pm.environment.set(\"auth_token\", jsonData.data.token);",
+									"        pm.collectionVariables.set(\"auth_token\", jsonData.data.token);",
+									"        console.log(\"Token saved:\", jsonData.data.token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\",\n  \"password_confirmation\": \"password123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{api_url}}/register",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"register"
+							]
+						},
+						"description": "Register user baru"
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.data && jsonData.data.token) {",
+									"        pm.environment.set(\"auth_token\", jsonData.data.token);",
+									"        pm.collectionVariables.set(\"auth_token\", jsonData.data.token);",
+									"        console.log(\"Token saved:\", jsonData.data.token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{api_url}}/login",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"login"
+							]
+						},
+						"description": "Login user"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/user",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"user"
+							]
+						},
+						"description": "Get current authenticated user"
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"John Updated\",\n  \"username\": \"johndoe\",\n  \"phone_number\": \"081234567890\",\n  \"gender\": \"Laki-laki\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{api_url}}/user",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"user"
+							]
+						},
+						"description": "Update user profile"
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    pm.environment.set(\"auth_token\", \"\");",
+									"    pm.collectionVariables.set(\"auth_token\", \"\");",
+									"    console.log(\"Token cleared\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/logout",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"logout"
+							]
+						},
+						"description": "Logout user"
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication endpoints"
+		},
+		{
+			"name": "Products",
+			"item": [
+				{
+					"name": "List Products",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/products?category=Sepatu&condition=Baru&search=Adidas",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"products"
+							],
+							"query": [
+								{
+									"key": "category",
+									"value": "Sepatu",
+									"description": "Filter by category (Baju, Perabotan, Elektronik, Kulia, Sepatu)"
+								},
+								{
+									"key": "condition",
+									"value": "Baru",
+									"description": "Filter by condition (Baru, Bekas, Sangat Baik, Baik, Cukup)"
+								},
+								{
+									"key": "search",
+									"value": "Adidas",
+									"description": "Search by product name"
+								},
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number"
+								}
+							]
+						},
+						"description": "Get list of products (public endpoint, supports filtering)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Product Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/products/1",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"products",
+								"1"
+							]
+						},
+						"description": "Get product detail by ID (public endpoint)"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Product",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "name",
+									"value": "Sepatu Adidas",
+									"type": "text",
+									"description": "Required"
+								},
+								{
+									"key": "category",
+									"value": "Sepatu",
+									"type": "text",
+									"description": "Required: Baju, Perabotan, Elektronik, Kulia, Sepatu"
+								},
+								{
+									"key": "condition",
+									"value": "Baru",
+									"type": "text",
+									"description": "Required: Baru, Bekas, Sangat Baik, Baik, Cukup"
+								},
+								{
+									"key": "description",
+									"value": "Sepatu Adidas original, ukuran 42",
+									"type": "text",
+									"description": "Optional"
+								},
+								{
+									"key": "location",
+									"value": "Jakarta",
+									"type": "text",
+									"description": "Required"
+								},
+								{
+									"key": "price",
+									"value": "500000",
+									"type": "text",
+									"description": "Required: number without dots/commas"
+								},
+								{
+									"key": "whatsapp_number",
+									"value": "081234567890",
+									"type": "text",
+									"description": "Required"
+								},
+								{
+									"key": "image",
+									"type": "file",
+									"src": [],
+									"description": "Optional: jpeg, png, jpg, gif, max 2MB"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{api_url}}/products",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"products"
+							]
+						},
+						"description": "Create new product (protected - requires token)"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Product",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "name",
+									"value": "Sepatu Adidas Updated",
+									"type": "text",
+									"description": "Optional"
+								},
+								{
+									"key": "price",
+									"value": "450000",
+									"type": "text",
+									"description": "Optional"
+								},
+								{
+									"key": "image",
+									"type": "file",
+									"src": [],
+									"description": "Optional: jpeg, png, jpg, gif, max 2MB"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{api_url}}/products/1",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"products",
+								"1"
+							]
+						},
+						"description": "Update product (protected - requires token & ownership)"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Product",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/products/1",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"products",
+								"1"
+							]
+						},
+						"description": "Delete product (protected - requires token & ownership)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Products",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/products/my-products",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"products",
+								"my-products"
+							]
+						},
+						"description": "Get products owned by authenticated user (protected - requires token)"
+					},
+					"response": []
+				}
+			],
+			"description": "Product endpoints"
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "api_url",
+			"value": "http://localhost:8000/api",
+			"type": "string"
+		},
+		{
+			"key": "auth_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+
