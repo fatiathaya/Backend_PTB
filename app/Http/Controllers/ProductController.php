@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Favorite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
@@ -32,21 +33,30 @@ class ProductController extends Controller
         }
 
         $products = $query->latest()->paginate(20);
+        
+        // Get user's favorite product IDs if authenticated
+        $userFavoriteIds = [];
+        if ($request->user()) {
+            $userFavoriteIds = Favorite::where('user_id', $request->user()->id)
+                ->pluck('product_id')
+                ->toArray();
+        }
 
         return response()->json([
             'success' => true,
-            'data' => $products->map(function ($product) {
+            'data' => $products->map(function ($product) use ($userFavoriteIds) {
                 return [
                     'id' => $product->id,
                     'name' => $product->name,
                     'category' => $product->category,
                     'condition' => $product->condition,
                     'price' => number_format($product->price, 0, ',', '.'),
-                    'image' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                    'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                     'location' => $product->location,
                     'description' => $product->description,
                     'whatsapp_number' => $product->whatsapp_number,
                     'seller_name' => $product->user->name ?? 'Unknown',
+                    'is_favorite' => in_array($product->id, $userFavoriteIds),
                     'created_at' => $product->created_at->format('Y-m-d H:i:s'),
                 ];
             }),
@@ -109,7 +119,7 @@ class ProductController extends Controller
                 'category' => $product->category,
                 'condition' => $product->condition,
                 'price' => number_format($product->price, 0, ',', '.'),
-                'image' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                 'location' => $product->location,
                 'description' => $product->description,
                 'whatsapp_number' => $product->whatsapp_number,
@@ -122,7 +132,7 @@ class ProductController extends Controller
     /**
      * Display the specified product.
      */
-    public function show($id)
+    public function show(Request $request, $id)
     {
         $product = Product::with('user:id,name,username,profile_image')->find($id);
 
@@ -133,6 +143,14 @@ class ProductController extends Controller
             ], 404);
         }
 
+        // Check if product is favorited by user
+        $isFavorite = false;
+        if ($request->user()) {
+            $isFavorite = Favorite::where('user_id', $request->user()->id)
+                ->where('product_id', $product->id)
+                ->exists();
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -141,13 +159,14 @@ class ProductController extends Controller
                 'category' => $product->category,
                 'condition' => $product->condition,
                 'price' => number_format($product->price, 0, ',', '.'),
-                'image' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                 'location' => $product->location,
                 'description' => $product->description,
                 'whatsapp_number' => $product->whatsapp_number,
                 'seller_name' => $product->user->name ?? 'Unknown',
                 'seller_username' => $product->user->username ?? null,
                 'seller_profile_image' => $product->user->profile_image ? url('storage/' . $product->user->profile_image) : null,
+                'is_favorite' => $isFavorite,
                 'created_at' => $product->created_at->format('Y-m-d H:i:s'),
                 'updated_at' => $product->updated_at->format('Y-m-d H:i:s'),
             ]
@@ -224,7 +243,7 @@ class ProductController extends Controller
                 'category' => $product->category,
                 'condition' => $product->condition,
                 'price' => number_format($product->price, 0, ',', '.'),
-                'image' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                 'location' => $product->location,
                 'description' => $product->description,
                 'whatsapp_number' => $product->whatsapp_number,
@@ -288,11 +307,121 @@ class ProductController extends Controller
                     'category' => $product->category,
                     'condition' => $product->condition,
                     'price' => number_format($product->price, 0, ',', '.'),
-                    'image' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                    'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                     'location' => $product->location,
                     'description' => $product->description,
                     'whatsapp_number' => $product->whatsapp_number,
                     'seller_name' => $product->user->name ?? 'Unknown',
+                    'created_at' => $product->created_at->format('Y-m-d H:i:s'),
+                ];
+            })
+        ]);
+    }
+
+    /**
+     * Toggle favorite status for a product.
+     * Hanya user yang sedang login yang bisa menambah/hapus favorite.
+     * Setiap user memiliki wishlist mereka sendiri.
+     */
+    public function toggleFavorite(Request $request, $id)
+    {
+        $product = Product::find($id);
+
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found'
+            ], 404);
+        }
+
+        // Get authenticated user - hanya user yang sedang login
+        $user = $request->user();
+        
+        // Cari favorite berdasarkan user_id dan product_id
+        // Memastikan hanya favorite milik user yang sedang login yang diakses
+        $favorite = Favorite::where('user_id', $user->id)
+            ->where('product_id', $product->id)
+            ->first();
+
+        if ($favorite) {
+            // Remove from favorites - hanya favorite milik user ini yang dihapus
+            $favorite->delete();
+            $isFavorite = false;
+        } else {
+            // Add to favorites - hanya untuk user yang sedang login
+            Favorite::create([
+                'user_id' => $user->id, // Pastikan user_id adalah user yang sedang login
+                'product_id' => $product->id,
+            ]);
+            $isFavorite = true;
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $isFavorite ? 'Product added to favorites' : 'Product removed from favorites',
+            'data' => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'category' => $product->category,
+                'condition' => $product->condition,
+                'price' => number_format($product->price, 0, ',', '.'),
+                'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                'location' => $product->location,
+                'description' => $product->description,
+                'whatsapp_number' => $product->whatsapp_number,
+                'seller_name' => $product->user->name ?? 'Unknown',
+                'is_favorite' => $isFavorite,
+                'created_at' => $product->created_at->format('Y-m-d H:i:s'),
+            ]
+        ]);
+    }
+
+    /**
+     * Get favorite products for authenticated user.
+     * Hanya menampilkan wishlist milik user yang sedang login.
+     * User tidak bisa melihat wishlist user lain.
+     */
+    public function getFavorites(Request $request)
+    {
+        // Get authenticated user - hanya user yang sedang login
+        $user = $request->user();
+        
+        // Validasi: Pastikan user tidak null (harus sudah authenticated)
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+        
+        // Query eksplisit dengan where clause untuk memastikan hanya mengambil favorite milik user ini
+        // Menggunakan Favorite model langsung dengan where clause yang eksplisit berdasarkan user_id
+        // Ini memastikan TIDAK ADA cara untuk mengakses wishlist user lain
+        $favorites = Favorite::where('user_id', $user->id) // EKSPLISIT: Hanya favorite milik user ini
+            ->with(['product.user:id,name,username,profile_image'])
+            ->latest()
+            ->get();
+
+        // Map ke products dan filter null
+        $favoriteProducts = $favorites->map(function ($favorite) {
+            return $favorite->product;
+        })->filter();
+
+        return response()->json([
+            'success' => true,
+            'data' => $favoriteProducts->map(function ($product) {
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'category' => $product->category,
+                    'condition' => $product->condition,
+                    'price' => number_format($product->price, 0, ',', '.'),
+                    'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                    'location' => $product->location,
+                    'description' => $product->description,
+                    'whatsapp_number' => $product->whatsapp_number,
+                    'seller_name' => $product->user->name ?? 'Unknown',
+                    'is_favorite' => true, // Semua produk di sini adalah favorite milik user ini
                     'created_at' => $product->created_at->format('Y-m-d H:i:s'),
                 ];
             })

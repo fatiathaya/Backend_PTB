@@ -21,7 +21,7 @@ Route::post('/register', [AuthController::class, 'register']);
 
 // Public product routes
 Route::get('/products', [ProductController::class, 'index']);
-Route::get('/products/{id}', [ProductController::class, 'show']);
+Route::get('/products/{id}', [ProductController::class, 'show'])->where('id', '[0-9]+'); // Public access, only numeric ID
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -29,11 +29,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::put('/user', [AuthController::class, 'updateUser']);
     
-    // Products routes
+    // Products routes - IMPORTANT: Specific routes MUST come before parameterized routes
     Route::post('/products', [ProductController::class, 'store']);
+    Route::get('/products/my-products', [ProductController::class, 'getMyProducts']);
+    Route::get('/products/favorites', [ProductController::class, 'getFavorites']); // Must be before any /products/{id} in protected
     Route::put('/products/{id}', [ProductController::class, 'update']);
     Route::delete('/products/{id}', [ProductController::class, 'destroy']);
-    Route::get('/products/my-products', [ProductController::class, 'getMyProducts']);
+    Route::post('/products/{id}/favorite', [ProductController::class, 'toggleFavorite']);
     
     // Addresses routes (you'll need to create AddressController)
     // Route::apiResource('addresses', AddressController::class);
