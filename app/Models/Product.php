@@ -21,7 +21,6 @@ class Product extends Model
         'category',
         'condition',
         'description',
-        'location',
         'price',
         'whatsapp_number',
         'image_products',
