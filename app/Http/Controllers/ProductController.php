@@ -4,9 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Favorite;
+use App\Models\ProductImage;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
@@ -19,7 +23,15 @@ class ProductController extends Controller
 
         // Filter by category
         if ($request->has('category') && $request->category) {
-            $query->where('category', $request->category);
+            $category = $request->category;
+            // Backward compatible: treat Baju/Pakaian as the same category.
+            if ($category === 'Baju' || $category === 'Pakaian') {
+                $query->whereIn('category', ['Baju', 'Pakaian']);
+            } elseif ($category === 'Kulia' || $category === 'Perlengkapan Kuliah') {
+                $query->whereIn('category', ['Kulia', 'Perlengkapan Kuliah']);
+            } else {
+                $query->where('category', $category);
+            }
         }
 
         // Filter by condition
@@ -27,9 +39,12 @@ class ProductController extends Controller
             $query->where('condition', $request->condition);
         }
 
-        // Search by name
+        // Search by name or category
         if ($request->has('search') && $request->search) {
-            $query->where('name', 'like', '%' . $request->search . '%');
+            $query->where(function($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->search . '%')
+                  ->orWhere('category', 'like', '%' . $request->search . '%');
+            });
         }
 
         $products = $query->latest()->paginate(20);
@@ -45,6 +60,15 @@ class ProductController extends Controller
         return response()->json([
             'success' => true,
             'data' => $products->map(function ($product) use ($userFavoriteIds) {
+                // Get all product images
+                $allImages = ProductImage::where('product_id', $product->id)
+                    ->orderBy('sort_order')
+                    ->get();
+                $imageUrls = $allImages->map(fn($img) => [
+                    'id' => $img->id,
+                    'url' => url('storage/' . $img->path)
+                ])->toArray();
+                
                 return [
                     'id' => $product->id,
                     'name' => $product->name,
@@ -52,6 +76,7 @@ class ProductController extends Controller
                     'condition' => $product->condition,
                     'price' => number_format($product->price, 0, ',', '.'),
                     'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                    'images' => $imageUrls, // Multi-image with IDs
                     'description' => $product->description,
                     'whatsapp_number' => $product->whatsapp_number,
                     'seller_name' => $product->user->name ?? 'Unknown',
@@ -75,12 +100,29 @@ class ProductController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'category' => 'required|string|in:Baju,Perabotan,Elektronik,Kulia,Sepatu',
+            // Accept legacy values, but we will normalize on save.
+            'category' => [
+                'required',
+                'string',
+                Rule::in([
+                    'Pakaian',
+                    'Baju',
+                    'Perabotan',
+                    'Elektronik',
+                    'Perlengkapan Kuliah',
+                    'Kulia',
+                    'Sepatu',
+                ]),
+            ],
             'condition' => 'required|string|in:Baru,Bekas,Sangat Baik,Baik,Cukup',
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
             'whatsapp_number' => 'required|string|max:20',
+            // Legacy single image
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            // New multiple images
+            'images' => 'nullable|array|max:6',
+            'images.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
         if ($validator->fails()) {
@@ -91,21 +133,54 @@ class ProductController extends Controller
             ], 422);
         }
 
-        $imagePath = null;
-        if ($request->hasFile('image')) {
-            $imagePath = $request->file('image')->store('products', 'public');
+        // Handle images (multi preferred, fallback to single)
+        $imagePaths = [];
+        if ($request->hasFile('images')) {
+            foreach ($request->file('images') as $idx => $file) {
+                if ($file) {
+                    $imagePaths[] = $file->store('products', 'public');
+                }
+            }
+        } elseif ($request->hasFile('image')) {
+            $imagePaths[] = $request->file('image')->store('products', 'public');
+        }
+
+        $category = $request->category;
+        if ($category === 'Baju') {
+            $category = 'Pakaian';
+        } elseif ($category === 'Kulia') {
+            $category = 'Perlengkapan Kuliah';
         }
 
         $product = Product::create([
             'user_id' => $request->user()->id,
             'name' => $request->name,
-            'category' => $request->category,
+            'category' => $category,
             'condition' => $request->condition,
             'description' => $request->description,
             'price' => $request->price,
             'whatsapp_number' => $request->whatsapp_number,
-            'image_products' => $imagePath,
+            // Use first image as cover
+            'image_products' => $imagePaths[0] ?? null,
         ]);
+
+        // Save all images to product_images table
+        foreach ($imagePaths as $i => $path) {
+            ProductImage::create([
+                'product_id' => $product->id,
+                'path' => $path,
+                'sort_order' => $i,
+            ]);
+        }
+
+        // Get all product images with IDs
+        $allImages = ProductImage::where('product_id', $product->id)
+            ->orderBy('sort_order')
+            ->get();
+        $imageUrls = $allImages->map(fn($img) => [
+            'id' => $img->id,
+            'url' => url('storage/' . $img->path)
+        ])->toArray();
 
         return response()->json([
             'success' => true,
@@ -117,6 +192,7 @@ class ProductController extends Controller
                 'condition' => $product->condition,
                 'price' => number_format($product->price, 0, ',', '.'),
                 'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                'images' => $imageUrls, // Multi-image with IDs
                 'description' => $product->description,
                 'whatsapp_number' => $product->whatsapp_number,
                 'seller_name' => $product->user->name ?? 'Unknown',
@@ -147,6 +223,15 @@ class ProductController extends Controller
                 ->exists();
         }
 
+        // Get all product images
+        $allImages = ProductImage::where('product_id', $product->id)
+            ->orderBy('sort_order')
+            ->get();
+        $imageUrls = $allImages->map(fn($img) => [
+            'id' => $img->id,
+            'url' => url('storage/' . $img->path)
+        ])->toArray();
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -156,6 +241,7 @@ class ProductController extends Controller
                 'condition' => $product->condition,
                 'price' => number_format($product->price, 0, ',', '.'),
                 'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                'images' => $imageUrls,
                 'description' => $product->description,
                 'whatsapp_number' => $product->whatsapp_number,
                 'seller_name' => $product->user->name ?? 'Unknown',
@@ -192,40 +278,411 @@ class ProductController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
-            'category' => 'sometimes|required|string|in:Baju,Perabotan,Elektronik,Kulia,Sepatu',
+            // Accept legacy values, but we will normalize on save.
+            'category' => [
+                'sometimes',
+                'required',
+                'string',
+                Rule::in([
+                    'Pakaian',
+                    'Baju',
+                    'Perabotan',
+                    'Elektronik',
+                    'Perlengkapan Kuliah',
+                    'Kulia',
+                    'Sepatu',
+                ]),
+            ],
             'condition' => 'sometimes|required|string|in:Baru,Bekas,Sangat Baik,Baik,Cukup',
             'description' => 'nullable|string',
-            'price' => 'sometimes|required|numeric|min:0',
+            'price' => 'sometimes|required|string', // Accept string, will convert to numeric
             'whatsapp_number' => 'sometimes|required|string|max:20',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            // New multiple images
+            'images' => 'nullable|array|max:6',
+            'images.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048',
+            'delete_image_ids' => 'nullable', // Accept any format, will process manually
         ]);
 
         if ($validator->fails()) {
+            Log::error('Product update validation failed', [
+                'product_id' => $id,
+                'errors' => $validator->errors()->toArray(),
+                'request_data' => $request->except(['images', 'image', 'delete_image_ids'])
+            ]);
+            
             return response()->json([
                 'success' => false,
-                'message' => 'Validation error',
+                'message' => 'Validation error: ' . $validator->errors()->first(),
                 'errors' => $validator->errors()
             ], 422);
         }
 
-        // Handle image upload
-        if ($request->hasFile('image')) {
-            // Delete old image if exists
+        // CRITICAL: Handle delete image IDs from multipart form
+        // Multipart forms send arrays as delete_image_ids[0], delete_image_ids[1], etc.
+        // Sometimes Laravel receives UploadedFile objects instead of string IDs due to multipart parsing
+        $deleteImageIds = [];
+        
+        // Get all request data
+        $allInput = $request->all();
+        
+        // CRITICAL: Read delete_image_ids and filter out UploadedFile objects
+        // Laravel might interpret delete_image_ids[] as files if sent incorrectly
+        if ($request->has('delete_image_ids')) {
+            $rawDeleteIds = $request->input('delete_image_ids');
+            
+            // Handle array case
+            if (is_array($rawDeleteIds)) {
+                foreach ($rawDeleteIds as $item) {
+                    // CRITICAL: Skip UploadedFile objects - these are images, not IDs to delete
+                    if ($item instanceof \Illuminate\Http\UploadedFile) {
+                        Log::warning("Skipping UploadedFile in delete_image_ids (should be ID)", [
+                            'product_id' => $product->id,
+                            'file_name' => $item->getClientOriginalName(),
+                            'file_size' => $item->getSize()
+                        ]);
+                        continue;
+                    }
+                    
+                    // Only add non-file values
+                    if ($item !== null && $item !== '') {
+                        $deleteImageIds[] = $item;
+                    }
+                }
+            } else {
+                // Single value case
+                if (!($rawDeleteIds instanceof \Illuminate\Http\UploadedFile)) {
+                    if ($rawDeleteIds !== null && $rawDeleteIds !== '') {
+                        $deleteImageIds[] = $rawDeleteIds;
+                    }
+                } else {
+                    Log::warning("delete_image_ids is UploadedFile (should be ID)", [
+                        'product_id' => $product->id,
+                        'file_name' => $rawDeleteIds->getClientOriginalName()
+                    ]);
+                }
+            }
+        }
+        
+        // If still empty, try to find in all request keys (fallback method)
+        // Look for delete_image_ids[0], delete_image_ids[1], etc. (indexed format)
+        if (empty($deleteImageIds)) {
+            foreach ($allInput as $key => $value) {
+                // Match delete_image_ids[] or delete_image_ids[0], delete_image_ids[1], etc.
+                if (preg_match('/^delete_image_ids(\[\d*\])?$/', $key)) {
+                    // Skip UploadedFile objects
+                    if ($value instanceof \Illuminate\Http\UploadedFile) {
+                        Log::warning("Skipping UploadedFile in request key: $key", [
+                            'product_id' => $product->id
+                        ]);
+                        continue;
+                    }
+                    
+                    if (is_array($value)) {
+                        foreach ($value as $v) {
+                            if (!($v instanceof \Illuminate\Http\UploadedFile) && $v !== null && $v !== '') {
+                                $deleteImageIds[] = $v;
+                            }
+                        }
+                    } else {
+                        if ($value !== null && $value !== '') {
+                            $deleteImageIds[] = $value;
+                        }
+                    }
+                }
+            }
+            
+            // CRITICAL: Also try to read from raw request content if still empty
+            // This handles cases where Laravel misinterprets the data
+            if (empty($deleteImageIds) && $request->getContent()) {
+                $content = $request->getContent();
+                // Try to extract delete_image_ids from raw content
+                if (preg_match_all('/name="delete_image_ids\[(\d+)\]"\s+value="(\d+)"/', $content, $matches)) {
+                    foreach ($matches[2] as $id) {
+                        $deleteImageIds[] = $id;
+                    }
+                    Log::info("Extracted delete_image_ids from raw content", [
+                        'product_id' => $product->id,
+                        'ids' => $deleteImageIds
+                    ]);
+                }
+            }
+        }
+        
+        Log::info("Received delete_image_ids - DEBUG", [
+            'product_id' => $product->id,
+            'has_delete_image_ids' => $request->has('delete_image_ids'),
+            'raw_input' => $deleteImageIds,
+            'type' => gettype($deleteImageIds),
+            'is_array' => is_array($deleteImageIds),
+            'count' => count($deleteImageIds),
+            'all_request_keys' => array_keys($allInput),
+            'request_content_type' => $request->header('Content-Type'),
+            'has_files' => $request->hasFile('delete_image_ids'),
+            'all_request_data_types' => array_map(function($v) {
+                return is_object($v) ? get_class($v) : gettype($v);
+            }, $allInput)
+        ]);
+        
+        // Ensure we have an array
+        if (!is_array($deleteImageIds)) {
+            $deleteImageIds = [];
+        }
+        
+        // Filter out null/empty values and convert to integers
+        // CRITICAL: Handle case where Laravel might receive UploadedFile objects instead of IDs
+        $deleteIds = [];
+        foreach ($deleteImageIds as $id) {
+            // Skip UploadedFile objects (these are images, not IDs to delete)
+            if ($id instanceof \Illuminate\Http\UploadedFile) {
+                Log::warning("Skipping UploadedFile in delete_image_ids", [
+                    'product_id' => $product->id,
+                    'file_name' => $id->getClientOriginalName()
+                ]);
+                continue;
+            }
+            
+            if ($id !== null && $id !== '' && $id !== 'null') {
+                // Convert to string first, then to int to handle both string and int inputs
+                $idValue = is_numeric($id) ? intval($id) : null;
+                if ($idValue !== null && $idValue > 0) {
+                    $deleteIds[] = $idValue;
+                }
+            }
+        }
+        
+        Log::info("Processed delete IDs", [
+            'product_id' => $product->id,
+            'delete_ids' => $deleteIds,
+            'count' => count($deleteIds)
+        ]);
+        
+        // CRITICAL: Execute deletion if we have IDs
+        if (!empty($deleteIds)) {
+            // Validate that all IDs exist in product_images table
+            $existingIds = ProductImage::where('product_id', $product->id)
+                ->whereIn('id', $deleteIds)
+                ->pluck('id')
+                ->toArray();
+            
+            $invalidIds = array_diff($deleteIds, $existingIds);
+            if (!empty($invalidIds)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Some image IDs do not exist or do not belong to this product',
+                    'invalid_ids' => $invalidIds
+                ], 422);
+            }
+            
+            $imagesToDelete = ProductImage::where('product_id', $product->id)
+                ->whereIn('id', $deleteIds)
+                ->get();
+            
+            Log::info("About to delete images", [
+                'product_id' => $product->id,
+                'count' => $imagesToDelete->count(),
+                'ids' => $imagesToDelete->pluck('id')->toArray()
+            ]);
+            
+            // CRITICAL: Delete each image from database and storage
+            foreach ($imagesToDelete as $img) {
+                $imageId = $img->id;
+                $imagePath = $img->path;
+                
+                Log::info("Deleting image", [
+                    'product_id' => $product->id,
+                    'image_id' => $imageId,
+                    'path' => $imagePath
+                ]);
+                
+                // Delete file from storage first
+                if ($imagePath && Storage::disk('public')->exists($imagePath)) {
+                    $storageDeleted = Storage::disk('public')->delete($imagePath);
+                    Log::info("Storage delete result", [
+                        'image_id' => $imageId,
+                        'path' => $imagePath,
+                        'deleted' => $storageDeleted
+                    ]);
+                }
+                
+                // CRITICAL: Delete record from database using direct DB query to ensure it works
+                // First try model delete
+                $dbDeleted = $img->delete();
+                
+                Log::info("Database delete result (model)", [
+                    'product_id' => $product->id,
+                    'image_id' => $imageId,
+                    'deleted' => $dbDeleted
+                ]);
+                
+                // CRITICAL: Verify deletion immediately
+                $stillExists = ProductImage::where('id', $imageId)->exists();
+                if ($stillExists) {
+                    Log::error("CRITICAL: Image still exists after model delete!", [
+                        'product_id' => $product->id,
+                        'image_id' => $imageId,
+                        'attempting_direct_db_delete' => true
+                    ]);
+                    
+                    // Try direct database delete as fallback (bypasses model events)
+                    $forceDeleted = DB::table('product_images')->where('id', $imageId)->delete();
+                    $stillExistsAfterForce = ProductImage::where('id', $imageId)->exists();
+                    
+                    if ($stillExistsAfterForce) {
+                        Log::error("CRITICAL: Image STILL exists after direct DB delete!", [
+                            'product_id' => $product->id,
+                            'image_id' => $imageId,
+                            'force_deleted_rows' => $forceDeleted
+                        ]);
+                    } else {
+                        Log::info("Image deleted after direct DB delete", [
+                            'product_id' => $product->id,
+                            'image_id' => $imageId
+                        ]);
+                    }
+                } else {
+                    Log::info("Image successfully deleted from database", [
+                        'product_id' => $product->id,
+                        'image_id' => $imageId
+                    ]);
+                }
+            }
+            
+            // If we deleted the cover image, set a new one from remaining images
+            $deletedPaths = $imagesToDelete->pluck('path')->toArray();
+            if ($product->image_products && in_array($product->image_products, $deletedPaths)) {
+                $newCover = ProductImage::where('product_id', $product->id)
+                    ->orderBy('sort_order')
+                    ->first();
+                $product->image_products = $newCover ? $newCover->path : null;
+                $product->save(); // Save the updated cover image
+                Log::info("Updated cover image", [
+                    'product_id' => $product->id,
+                    'new_cover' => $product->image_products
+                ]);
+            }
+        }
+
+        // Handle images (multi preferred, fallback to single)
+        $imagePaths = [];
+        if ($request->hasFile('images')) {
+            foreach ($request->file('images') as $idx => $file) {
+                $imagePath = $file->store('products', 'public');
+                $imagePaths[] = $imagePath;
+                
+            ProductImage::create([
+                'product_id' => $product->id,
+                'path' => $imagePath,
+                'sort_order' => ProductImage::where('product_id', $product->id)->max('sort_order') + $idx + 1,
+            ]);
+            }
+            
+            // Set first new image as cover if no cover exists
+            if (empty($product->image_products) && !empty($imagePaths)) {
+                $product->image_products = $imagePaths[0];
+            }
+        } elseif ($request->hasFile('image')) {
+            // Legacy single image support
             if ($product->image_products && Storage::disk('public')->exists($product->image_products)) {
                 Storage::disk('public')->delete($product->image_products);
             }
             $imagePath = $request->file('image')->store('products', 'public');
             $product->image_products = $imagePath;
+            
+            // Also save to product_images
+            ProductImage::create([
+                'product_id' => $product->id,
+                'path' => $imagePath,
+                'sort_order' => ProductImage::where('product_id', $product->id)->max('sort_order') + 1,
+            ]);
         }
 
-        $product->update($request->only([
-            'name',
-            'category',
-            'condition',
-            'description',
-            'price',
-            'whatsapp_number',
-        ]));
+        try {
+            $updateData = [];
+            
+            // Only update fields that are provided
+            if ($request->has('name')) {
+                $updateData['name'] = $request->input('name');
+            }
+            if ($request->has('category')) {
+                $category = $request->input('category');
+                // Normalize category
+                if ($category === 'Baju') {
+                    $category = 'Pakaian';
+                } elseif ($category === 'Kulia') {
+                    $category = 'Perlengkapan Kuliah';
+                }
+                $updateData['category'] = $category;
+            }
+            if ($request->has('condition')) {
+                $updateData['condition'] = $request->input('condition');
+            }
+            if ($request->has('description')) {
+                $updateData['description'] = $request->input('description');
+            }
+            if ($request->has('price')) {
+                // Remove formatting from price if present
+                $price = $request->input('price');
+                $price = str_replace(['Rp ', '.', ','], '', $price);
+                $updateData['price'] = floatval($price);
+            }
+            if ($request->has('whatsapp_number')) {
+                $updateData['whatsapp_number'] = $request->input('whatsapp_number');
+            }
+
+            if (!empty($updateData)) {
+                $product->update($updateData);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error updating product: ' . $e->getMessage(), [
+                'product_id' => $product->id,
+                'request_data' => $request->except(['images', 'image']),
+                'exception' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update product: ' . $e->getMessage()
+            ], 500);
+        }
+
+        // CRITICAL: Get all product images AFTER deletion and upload
+        // This ensures we return the current state of images in database
+        // Refresh product to get latest data
+        $product->refresh();
+        
+        // CRITICAL: Force fresh query to get latest images from database
+        // Use fresh() to bypass any query cache
+        $allImages = ProductImage::where('product_id', $product->id)
+            ->orderBy('sort_order')
+            ->get();
+        
+        $imageUrls = $allImages->map(fn($img) => [
+            'id' => $img->id,
+            'url' => url('storage/' . $img->path)
+        ])->toArray();
+        
+        // CRITICAL: Verify that deleted images are not in the response
+        $deletedIds = $deleteIds ?? [];
+        $returnedIds = array_column($imageUrls, 'id');
+        $stillInResponse = array_intersect($deletedIds, $returnedIds);
+        
+        if (!empty($stillInResponse)) {
+            Log::error("DELETED IMAGES STILL IN RESPONSE!", [
+                'product_id' => $product->id,
+                'deleted_ids' => $deletedIds,
+                'returned_ids' => $returnedIds,
+                'still_in_response' => $stillInResponse
+            ]);
+        }
+        
+        Log::info("Product update response - FINAL STATE", [
+            'product_id' => $product->id,
+            'images_count' => count($imageUrls),
+            'image_ids' => $returnedIds,
+            'deleted_ids' => $deletedIds,
+            'verification' => empty($stillInResponse) ? 'PASSED' : 'FAILED'
+        ]);
 
         return response()->json([
             'success' => true,
@@ -237,6 +694,7 @@ class ProductController extends Controller
                 'condition' => $product->condition,
                 'price' => number_format($product->price, 0, ',', '.'),
                 'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                'images' => $imageUrls,
                 'description' => $product->description,
                 'whatsapp_number' => $product->whatsapp_number,
                 'seller_name' => $product->user->name ?? 'Unknown',
@@ -268,7 +726,16 @@ class ProductController extends Controller
             ], 403);
         }
 
-        // Delete image if exists
+        // Delete all product images
+        $productImages = ProductImage::where('product_id', $product->id)->get();
+        foreach ($productImages as $img) {
+            if ($img->path && Storage::disk('public')->exists($img->path)) {
+                Storage::disk('public')->delete($img->path);
+            }
+        }
+        ProductImage::where('product_id', $product->id)->delete();
+        
+        // Delete cover image if exists
         if ($product->image_products && Storage::disk('public')->exists($product->image_products)) {
             Storage::disk('public')->delete($product->image_products);
         }
@@ -282,10 +749,131 @@ class ProductController extends Controller
     }
 
     /**
+     * Delete a product image
+     */
+    public function deleteProductImage(Request $request, $productId, $imageId)
+    {
+        $product = Product::find($productId);
+        
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found'
+            ], 404);
+        }
+        
+        // Check if user owns the product
+        if ($product->user_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. You can only delete images from your own products.'
+            ], 403);
+        }
+        
+        // Find the image
+        $image = ProductImage::where('id', $imageId)
+            ->where('product_id', $productId)
+            ->first();
+        
+        if (!$image) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Image not found'
+            ], 404);
+        }
+        
+        Log::info("Deleting product image", [
+            'product_id' => $productId,
+            'image_id' => $imageId,
+            'path' => $image->path
+        ]);
+        
+        // Delete file from storage
+        if ($image->path && Storage::disk('public')->exists($image->path)) {
+            $storageDeleted = Storage::disk('public')->delete($image->path);
+            Log::info("Storage delete result", [
+                'image_id' => $imageId,
+                'path' => $image->path,
+                'deleted' => $storageDeleted
+            ]);
+        }
+        
+        // Delete record from database
+        $imageIdToDelete = $image->id;
+        $dbDeleted = $image->delete();
+        
+        Log::info("Database delete result", [
+            'product_id' => $productId,
+            'image_id' => $imageIdToDelete,
+            'deleted' => $dbDeleted
+        ]);
+        
+        // Verify deletion
+        $stillExists = ProductImage::where('id', $imageIdToDelete)->exists();
+        if ($stillExists) {
+            Log::error("CRITICAL: Image still exists after delete!", [
+                'product_id' => $productId,
+                'image_id' => $imageIdToDelete
+            ]);
+            
+            // Try direct database delete as fallback
+            $forceDeleted = DB::table('product_images')->where('id', $imageIdToDelete)->delete();
+            $stillExistsAfterForce = ProductImage::where('id', $imageIdToDelete)->exists();
+            
+            if ($stillExistsAfterForce) {
+                Log::error("CRITICAL: Image STILL exists after force delete!", [
+                    'product_id' => $productId,
+                    'image_id' => $imageIdToDelete
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to delete image from database'
+                ], 500);
+            }
+        }
+        
+        // If we deleted the cover image, set a new one from remaining images
+        if ($product->image_products && $product->image_products === $image->path) {
+            $newCover = ProductImage::where('product_id', $product->id)
+                ->orderBy('sort_order')
+                ->first();
+            $product->image_products = $newCover ? $newCover->path : null;
+            $product->save();
+            Log::info("Updated cover image", [
+                'product_id' => $product->id,
+                'new_cover' => $product->image_products
+            ]);
+        }
+        
+        // Get updated product with remaining images
+        $product->refresh();
+        $allImages = ProductImage::where('product_id', $product->id)
+            ->orderBy('sort_order')
+            ->get();
+        
+        $imageUrls = $allImages->map(fn($img) => [
+            'id' => $img->id,
+            'url' => url('storage/' . $img->path)
+        ])->toArray();
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Image deleted successfully',
+            'data' => [
+                'product_id' => $product->id,
+                'images' => $imageUrls,
+                'deleted_image_id' => $imageIdToDelete
+            ]
+        ]);
+    }
+    
+    /**
      * Get products by authenticated user.
      */
     public function getMyProducts(Request $request)
     {
+        // CRITICAL: Use fresh query to ensure we get latest data
         $products = Product::where('user_id', $request->user()->id)
             ->latest()
             ->get();
@@ -293,6 +881,22 @@ class ProductController extends Controller
         return response()->json([
             'success' => true,
             'data' => $products->map(function ($product) {
+                // CRITICAL: Always query fresh from database, don't use cached relationship
+                $allImages = ProductImage::where('product_id', $product->id)
+                    ->orderBy('sort_order')
+                    ->get();
+                $imageUrls = $allImages->map(fn($img) => [
+                    'id' => $img->id,
+                    'url' => url('storage/' . $img->path)
+                ])->toArray();
+                
+                Log::info("getMyProducts - Product images", [
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'images_count' => count($imageUrls),
+                    'image_ids' => array_column($imageUrls, 'id')
+                ]);
+                
                 return [
                     'id' => $product->id,
                     'name' => $product->name,
@@ -300,6 +904,7 @@ class ProductController extends Controller
                     'condition' => $product->condition,
                     'price' => number_format($product->price, 0, ',', '.'),
                     'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                    'images' => $imageUrls, // Multi-image with IDs - CRITICAL: This is fresh from database
                     'description' => $product->description,
                     'whatsapp_number' => $product->whatsapp_number,
                     'seller_name' => $product->user->name ?? 'Unknown',
