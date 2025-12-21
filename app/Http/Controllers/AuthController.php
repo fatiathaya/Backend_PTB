@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
@@ -46,7 +47,7 @@ class AuthController extends Controller
                     'username' => $user->username ?? null,
                     'phone_number' => $user->phone_number ?? null,
                     'gender' => $user->gender ?? null,
-                    'profile_image' => $user->profile_image ?? null,
+                    'profile_image' => $user->profile_image ? url('storage/' . $user->profile_image) : null,
                 ],
                 'token' => $token
             ]
@@ -94,7 +95,7 @@ class AuthController extends Controller
                     'username' => $user->username ?? null,
                     'phone_number' => $user->phone_number ?? null,
                     'gender' => $user->gender ?? null,
-                    'profile_image' => $user->profile_image ?? null,
+                    'profile_image' => $user->profile_image ? url('storage/' . $user->profile_image) : null,
                 ],
                 'token' => $token
             ]
@@ -113,16 +114,17 @@ class AuthController extends Controller
 
     public function user(Request $request)
     {
+        $user = $request->user();
         return response()->json([
             'success' => true,
             'data' => [
-                'id' => $request->user()->id,
-                'name' => $request->user()->name,
-                'email' => $request->user()->email,
-                'username' => $request->user()->username ?? null,
-                'phone_number' => $request->user()->phone_number ?? null,
-                'gender' => $request->user()->gender ?? null,
-                'profile_image' => $request->user()->profile_image ?? null,
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'username' => $user->username ?? null,
+                'phone_number' => $user->phone_number ?? null,
+                'gender' => $user->gender ?? null,
+                'profile_image' => $user->profile_image ? url('storage/' . $user->profile_image) : null,
             ]
         ]);
     }
@@ -135,6 +137,7 @@ class AuthController extends Controller
             'username' => 'sometimes|string|max:255',
             'phone_number' => 'sometimes|string|max:20',
             'gender' => 'sometimes|string|in:Laki-laki,Perempuan',
+            'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
         if ($validator->fails()) {
@@ -146,7 +149,26 @@ class AuthController extends Controller
         }
 
         $user = $request->user();
+        
+        // Handle profile image upload
+        if ($request->hasFile('profile_image')) {
+            // Delete old profile image if exists
+            if ($user->profile_image && Storage::disk('public')->exists($user->profile_image)) {
+                Storage::disk('public')->delete($user->profile_image);
+            }
+            
+            // Store new profile image
+            $imagePath = $request->file('profile_image')->store('profiles', 'public');
+            $user->profile_image = $imagePath;
+        }
+        
+        // Update other fields
         $user->update($request->only(['name', 'email', 'username', 'phone_number', 'gender']));
+        
+        // Save profile_image if it was uploaded
+        if (isset($imagePath)) {
+            $user->save();
+        }
 
         return response()->json([
             'success' => true,
@@ -158,7 +180,34 @@ class AuthController extends Controller
                 'username' => $user->username ?? null,
                 'phone_number' => $user->phone_number ?? null,
                 'gender' => $user->gender ?? null,
-                'profile_image' => $user->profile_image ?? null,
+                'profile_image' => $user->profile_image ? url('storage/' . $user->profile_image) : null,
+            ]
+        ]);
+    }
+    
+    public function deleteProfileImage(Request $request)
+    {
+        $user = $request->user();
+        
+        // Delete profile image if exists
+        if ($user->profile_image && Storage::disk('public')->exists($user->profile_image)) {
+            Storage::disk('public')->delete($user->profile_image);
+        }
+        
+        $user->profile_image = null;
+        $user->save();
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Profile image deleted successfully',
+            'data' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'username' => $user->username ?? null,
+                'phone_number' => $user->phone_number ?? null,
+                'gender' => $user->gender ?? null,
+                'profile_image' => null,
             ]
         ]);
     }
