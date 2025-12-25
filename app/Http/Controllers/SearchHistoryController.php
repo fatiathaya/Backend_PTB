@@ -10,13 +10,14 @@ class SearchHistoryController extends Controller
 {
     /**
      * Get user's search history (most recent first, limit 10).
+     * Sorted by updated_at so that re-searched items appear at the top.
      */
     public function index(Request $request)
     {
         $histories = SearchHistory::where('user_id', $request->user()->id)
-            ->orderBy('created_at', 'desc')
+            ->orderBy('updated_at', 'desc')
             ->limit(10)
-            ->get(['id', 'query', 'created_at']);
+            ->get(['id', 'query', 'created_at', 'updated_at']);
 
         return response()->json([
             'success' => true,

@@ -511,6 +511,400 @@
 				}
 			],
 			"description": "Product endpoints"
+		},
+		{
+			"name": "Push Notifications",
+			"item": [
+				{
+					"name": "Get FCM Token Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/test/fcm-token",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"test",
+								"fcm-token"
+							]
+						},
+						"description": "Cek apakah user memiliki FCM token"
+					},
+					"response": []
+				},
+				{
+					"name": "Save FCM Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fcm_token\": \"cWRIwmNESVm4zw1qDAGWHg:APA91bFxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{api_url}}/user/fcm-token",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"user",
+								"fcm-token"
+							]
+						},
+						"description": "Simpan FCM token untuk user yang sedang login"
+					},
+					"response": []
+				},
+				{
+					"name": "Test Send Notification",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Test Notifikasi\",\n  \"message\": \"Ini adalah test push notification dari Postman\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{api_url}}/test/notification",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"test",
+								"notification"
+							]
+						},
+						"description": "Test kirim push notification ke user yang sedang login"
+					},
+					"response": []
+				},
+				{
+					"name": "Test Send Notification to User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Notifikasi untuk User Lain\",\n  \"message\": \"Ini adalah test notification untuk user ID tertentu\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{api_url}}/test/notification/2",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"test",
+								"notification",
+								"2"
+							],
+							"variable": [
+								{
+									"key": "userId",
+									"value": "2",
+									"description": "User ID target"
+								}
+							]
+						},
+						"description": "Test kirim push notification ke user ID tertentu (ganti 2 dengan user_id target)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Notifications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/notifications",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"notifications"
+							]
+						},
+						"description": "Get semua notifikasi untuk user yang sedang login"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Unread Count",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/notifications/unread-count",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"notifications",
+								"unread-count"
+							]
+						},
+						"description": "Get jumlah notifikasi yang belum dibaca"
+					},
+					"response": []
+				},
+				{
+					"name": "Mark Notification as Read",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/notifications/1/read",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"notifications",
+								"1",
+								"read"
+							],
+							"variable": [
+								{
+									"key": "notificationId",
+									"value": "1",
+									"description": "Notification ID"
+								}
+							]
+						},
+						"description": "Tandai notifikasi sebagai sudah dibaca (ganti 1 dengan notification_id)"
+					},
+					"response": []
+				},
+				{
+					"name": "Mark All Notifications as Read",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/notifications/read-all",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"notifications",
+								"read-all"
+							]
+						},
+						"description": "Tandai semua notifikasi sebagai sudah dibaca"
+					},
+					"response": []
+				}
+			],
+			"description": "Push Notification endpoints untuk testing"
+		},
+		{
+			"name": "Comments",
+			"item": [
+				{
+					"name": "Get Product Comments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{api_url}}/products/1/comments",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"products",
+								"1",
+								"comments"
+							],
+							"variable": [
+								{
+									"key": "productId",
+									"value": "1",
+									"description": "Product ID"
+								}
+							]
+						},
+						"description": "Get semua komentar untuk produk tertentu (public)"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Comment (Trigger Notification)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"comment\": \"Produk bagus sekali!\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{api_url}}/products/1/comments",
+							"host": [
+								"{{api_url}}"
+							],
+							"path": [
+								"products",
+								"1",
+								"comments"
+							],
+							"variable": [
+								{
+									"key": "productId",
+									"value": "1",
+									"description": "Product ID (product owner akan menerima notifikasi)"
+								}
+							]
+						},
+						"description": "Buat komentar baru (akan trigger push notification ke product owner)"
+					},
+					"response": []
+				}
+			],
+			"description": "Comment endpoints (create comment akan trigger push notification)"
 		}
 	],
 	"variable": [
