@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\Favorite;
 use App\Models\ProductImage;
+use App\Models\Notification;
+use App\Services\FirebaseNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -47,19 +49,25 @@ class ProductController extends Controller
             });
         }
 
+        if ($request->has('user_id') && $request->user_id) {
+            $query->where('user_id', $request->user_id);
+        }
+
         $products = $query->latest()->paginate(20);
         
         // Get user's favorite product IDs if authenticated
         $userFavoriteIds = [];
+        $currentUserId = null;
         if ($request->user()) {
-            $userFavoriteIds = Favorite::where('user_id', $request->user()->id)
+            $currentUserId = $request->user()->id;
+            $userFavoriteIds = Favorite::where('user_id', $currentUserId)
                 ->pluck('product_id')
                 ->toArray();
         }
 
         return response()->json([
             'success' => true,
-            'data' => $products->map(function ($product) use ($userFavoriteIds) {
+            'data' => $products->map(function ($product) use ($userFavoriteIds, $currentUserId) {
                 // Get all product images
                 $allImages = ProductImage::where('product_id', $product->id)
                     ->orderBy('sort_order')
@@ -68,6 +76,12 @@ class ProductController extends Controller
                     'id' => $img->id,
                     'url' => url('storage/' . $img->path)
                 ])->toArray();
+                
+                // Check if current user is the product owner
+                $isOwnProduct = false;
+                if ($currentUserId !== null) {
+                    $isOwnProduct = $product->user_id === $currentUserId;
+                }
                 
                 return [
                     'id' => $product->id,
@@ -78,9 +92,15 @@ class ProductController extends Controller
                     'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                     'images' => $imageUrls, // Multi-image with IDs
                     'description' => $product->description,
+                    'address' => $product->address,
+                    'latitude' => $product->latitude,
+                    'longitude' => $product->longitude,
+                    'location' => $product->location,
                     'whatsapp_number' => $product->whatsapp_number,
                     'seller_name' => $product->user->name ?? 'Unknown',
+                    'user_id' => $product->user_id, // ID pemilik produk
                     'is_favorite' => in_array($product->id, $userFavoriteIds),
+                    'is_own_product' => $isOwnProduct, // Flag untuk menandai produk milik user sendiri
                     'created_at' => $product->created_at->format('Y-m-d H:i:s'),
                 ];
             }),
@@ -116,6 +136,10 @@ class ProductController extends Controller
             ],
             'condition' => 'required|string|in:Baru,Bekas,Sangat Baik,Baik,Cukup',
             'description' => 'nullable|string',
+            'address' => 'nullable|string|max:1000',
+            'latitude' => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
+            'location' => 'nullable|string|max:500',
             'price' => 'required|numeric|min:0',
             'whatsapp_number' => 'required|string|max:20',
             // Legacy single image
@@ -133,6 +157,7 @@ class ProductController extends Controller
             ], 422);
         }
 
+        try {
         // Handle images (multi preferred, fallback to single)
         $imagePaths = [];
         if ($request->hasFile('images')) {
@@ -158,6 +183,10 @@ class ProductController extends Controller
             'category' => $category,
             'condition' => $request->condition,
             'description' => $request->description,
+            'address' => $request->address,
+            'latitude' => $request->latitude,
+            'longitude' => $request->longitude,
+                'location' => $request->location ?? $request->address, // Use location if provided, fallback to address
             'price' => $request->price,
             'whatsapp_number' => $request->whatsapp_number,
             // Use first image as cover
@@ -171,6 +200,17 @@ class ProductController extends Controller
                 'path' => $path,
                 'sort_order' => $i,
             ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error creating product: ' . $e->getMessage(), [
+                'exception' => $e->getTraceAsString(),
+                'request_data' => $request->except(['images', 'image'])
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal membuat produk: ' . $e->getMessage()
+            ], 500);
         }
 
         // Get all product images with IDs
@@ -194,6 +234,10 @@ class ProductController extends Controller
                 'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                 'images' => $imageUrls, // Multi-image with IDs
                 'description' => $product->description,
+                'address' => $product->address,
+                'latitude' => $product->latitude,
+                'longitude' => $product->longitude,
+                'location' => $product->location,
                 'whatsapp_number' => $product->whatsapp_number,
                 'seller_name' => $product->user->name ?? 'Unknown',
                 'created_at' => $product->created_at->format('Y-m-d H:i:s'),
@@ -232,6 +276,12 @@ class ProductController extends Controller
             'url' => url('storage/' . $img->path)
         ])->toArray();
 
+        // Check if current user is the product owner
+        $isOwnProduct = false;
+        if ($request->user()) {
+            $isOwnProduct = $product->user_id === $request->user()->id;
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -243,11 +293,17 @@ class ProductController extends Controller
                 'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                 'images' => $imageUrls,
                 'description' => $product->description,
+                'address' => $product->address,
+                'latitude' => $product->latitude,
+                'longitude' => $product->longitude,
+                'location' => $product->location,
                 'whatsapp_number' => $product->whatsapp_number,
                 'seller_name' => $product->user->name ?? 'Unknown',
                 'seller_username' => $product->user->username ?? null,
                 'seller_profile_image' => $product->user->profile_image ? url('storage/' . $product->user->profile_image) : null,
+                'user_id' => $product->user_id, // ID pemilik produk
                 'is_favorite' => $isFavorite,
+                'is_own_product' => $isOwnProduct, // Flag untuk menandai produk milik user sendiri
                 'created_at' => $product->created_at->format('Y-m-d H:i:s'),
                 'updated_at' => $product->updated_at->format('Y-m-d H:i:s'),
             ]
@@ -295,6 +351,9 @@ class ProductController extends Controller
             ],
             'condition' => 'sometimes|required|string|in:Baru,Bekas,Sangat Baik,Baik,Cukup',
             'description' => 'nullable|string',
+            'address' => 'nullable|string|max:1000',
+            'latitude' => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
             'price' => 'sometimes|required|string', // Accept string, will convert to numeric
             'whatsapp_number' => 'sometimes|required|string|max:20',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -620,6 +679,18 @@ class ProductController extends Controller
             if ($request->has('description')) {
                 $updateData['description'] = $request->input('description');
             }
+            if ($request->has('address')) {
+                $updateData['address'] = $request->input('address');
+            }
+            if ($request->has('latitude')) {
+                $updateData['latitude'] = $request->input('latitude');
+            }
+            if ($request->has('longitude')) {
+                $updateData['longitude'] = $request->input('longitude');
+            }
+            if ($request->has('location')) {
+                $updateData['location'] = $request->input('location');
+            }
             if ($request->has('price')) {
                 // Remove formatting from price if present
                 $price = $request->input('price');
@@ -646,10 +717,15 @@ class ProductController extends Controller
             ], 500);
         }
 
+
         // CRITICAL: Get all product images AFTER deletion and upload
         // This ensures we return the current state of images in database
         // Refresh product to get latest data
         $product->refresh();
+        
+        // CRITICAL: Eager load user relation to prevent lazy loading issues
+        // Lazy loading in response can cause timeout or errors
+        $product->load('user');
         
         // CRITICAL: Force fresh query to get latest images from database
         // Use fresh() to bypass any query cache
@@ -662,46 +738,50 @@ class ProductController extends Controller
             'url' => url('storage/' . $img->path)
         ])->toArray();
         
-        // CRITICAL: Verify that deleted images are not in the response
-        $deletedIds = $deleteIds ?? [];
-        $returnedIds = array_column($imageUrls, 'id');
-        $stillInResponse = array_intersect($deletedIds, $returnedIds);
-        
-        if (!empty($stillInResponse)) {
-            Log::error("DELETED IMAGES STILL IN RESPONSE!", [
-                'product_id' => $product->id,
-                'deleted_ids' => $deletedIds,
-                'returned_ids' => $returnedIds,
-                'still_in_response' => $stillInResponse
-            ]);
-        }
-        
-        Log::info("Product update response - FINAL STATE", [
+        Log::info("Product update completed - sending response", [
             'product_id' => $product->id,
             'images_count' => count($imageUrls),
-            'image_ids' => $returnedIds,
-            'deleted_ids' => $deletedIds,
-            'verification' => empty($stillInResponse) ? 'PASSED' : 'FAILED'
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Product updated successfully',
-            'data' => [
-                'id' => $product->id,
-                'name' => $product->name,
-                'category' => $product->category,
-                'condition' => $product->condition,
-                'price' => number_format($product->price, 0, ',', '.'),
-                'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
-                'images' => $imageUrls,
-                'description' => $product->description,
-                'whatsapp_number' => $product->whatsapp_number,
-                'seller_name' => $product->user->name ?? 'Unknown',
-                'created_at' => $product->created_at->format('Y-m-d H:i:s'),
-                'updated_at' => $product->updated_at->format('Y-m-d H:i:s'),
-            ]
-        ]);
+        // CRITICAL: Wrap response generation in try-catch to ensure we always send a response
+        try {
+            return response()->json([
+                'success' => true,
+                'message' => 'Product updated successfully',
+                'data' => [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'category' => $product->category,
+                    'condition' => $product->condition,
+                    'price' => number_format($product->price, 0, ',', '.'),
+                    'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                    'images' => $imageUrls,
+                    'description' => $product->description,
+                    'address' => $product->address,
+                    'latitude' => $product->latitude,
+                    'longitude' => $product->longitude,
+                    'location' => $product->location,
+                    'whatsapp_number' => $product->whatsapp_number,
+                    'seller_name' => $product->user ? $product->user->name : 'Unknown',
+                    'created_at' => $product->created_at ? $product->created_at->format('Y-m-d H:i:s') : null,
+                    'updated_at' => $product->updated_at ? $product->updated_at->format('Y-m-d H:i:s') : null,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            // If response generation fails, still send a basic success response
+            Log::error('Error generating update response: ' . $e->getMessage());
+            return response()->json([
+                'success' => true,
+                'message' => 'Product updated successfully',
+                'data' => [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'category' => $product->category,
+                    'price' => number_format($product->price, 0, ',', '.'),
+                    'images' => $imageUrls,
+                ]
+            ]);
+        }
     }
 
     /**
@@ -880,7 +960,7 @@ class ProductController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $products->map(function ($product) {
+            'data' => $products->map(function ($product) use ($request) {
                 // CRITICAL: Always query fresh from database, don't use cached relationship
                 $allImages = ProductImage::where('product_id', $product->id)
                     ->orderBy('sort_order')
@@ -897,6 +977,9 @@ class ProductController extends Controller
                     'image_ids' => array_column($imageUrls, 'id')
                 ]);
                 
+                // Semua produk di getMyProducts adalah milik user sendiri
+                $isOwnProduct = true;
+                
                 return [
                     'id' => $product->id,
                     'name' => $product->name,
@@ -906,8 +989,14 @@ class ProductController extends Controller
                     'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                     'images' => $imageUrls, // Multi-image with IDs - CRITICAL: This is fresh from database
                     'description' => $product->description,
+                    'address' => $product->address,
+                    'latitude' => $product->latitude,
+                    'longitude' => $product->longitude,
+                    'location' => $product->location,
                     'whatsapp_number' => $product->whatsapp_number,
                     'seller_name' => $product->user->name ?? 'Unknown',
+                    'user_id' => $product->user_id, // ID pemilik produk
+                    'is_own_product' => $isOwnProduct, // Flag untuk menandai produk milik user sendiri
                     'created_at' => $product->created_at->format('Y-m-d H:i:s'),
                 ];
             })
@@ -933,6 +1022,14 @@ class ProductController extends Controller
         // Get authenticated user - hanya user yang sedang login
         $user = $request->user();
         
+        // Validasi: User tidak bisa wishlist produk sendiri
+        if ($product->user_id === $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak bisa menambahkan produk sendiri ke wishlist'
+            ], 400);
+        }
+        
         // Cari favorite berdasarkan user_id dan product_id
         // Memastikan hanya favorite milik user yang sedang login yang diakses
         $favorite = Favorite::where('user_id', $user->id)
@@ -943,6 +1040,54 @@ class ProductController extends Controller
             // Remove from favorites - hanya favorite milik user ini yang dihapus
             $favorite->delete();
             $isFavorite = false;
+            
+            // Hapus notifikasi wishlist terkait ketika produk di-unwishlist
+            // Hanya hapus jika user me-unwishlist produk milik user lain
+            if ($product->user_id !== $user->id) {
+                try {
+                    $wishlisterName = $user->name ?? 'Seseorang';
+                    
+                    // Cari notifikasi wishlist yang sesuai dengan user yang melakukan unwishlist
+                    // Kita cari berdasarkan message yang mengandung nama user yang unwishlist
+                    $wishlistNotifications = Notification::where('user_id', $product->user_id)
+                        ->where('product_id', $product->id)
+                        ->where('type', 'wishlist')
+                        ->where('message', 'like', '%' . $wishlisterName . '%')
+                        ->orderBy('created_at', 'desc')
+                        ->get();
+                    
+                    if ($wishlistNotifications->isNotEmpty()) {
+                        // Hapus notifikasi wishlist yang sesuai (biasanya hanya 1, tapi bisa lebih jika ada multiple)
+                        $deletedCount = 0;
+                        foreach ($wishlistNotifications as $notification) {
+                            $notificationId = $notification->id;
+                            $notification->delete();
+                            $deletedCount++;
+                            Log::info("✅ Wishlist notification deleted - ID: {$notificationId}, User ID: {$product->user_id}, Product ID: {$product->id}, Unwishlisted by User: {$user->id} ({$wishlisterName})");
+                        }
+                        Log::info("✅ Deleted {$deletedCount} wishlist notification(s) for product {$product->id}");
+                    } else {
+                        // Fallback: Hapus notifikasi wishlist terbaru jika tidak ditemukan berdasarkan nama
+                        $wishlistNotification = Notification::where('user_id', $product->user_id)
+                            ->where('product_id', $product->id)
+                            ->where('type', 'wishlist')
+                            ->orderBy('created_at', 'desc')
+                            ->first();
+                        
+                        if ($wishlistNotification) {
+                            $notificationId = $wishlistNotification->id;
+                            $wishlistNotification->delete();
+                            Log::info("✅ Wishlist notification deleted (fallback) - ID: {$notificationId}, User ID: {$product->user_id}, Product ID: {$product->id}, Unwishlisted by User: {$user->id}");
+                        } else {
+                            Log::info("ℹ️ No wishlist notification found to delete for product {$product->id}, user {$product->user_id}");
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::error('❌ Error deleting wishlist notification: ' . $e->getMessage());
+                    Log::error('Stack trace: ' . $e->getTraceAsString());
+                    // Don't fail the unwishlist operation if notification deletion fails
+                }
+            }
         } else {
             // Add to favorites - hanya untuk user yang sedang login
             Favorite::create([
@@ -950,6 +1095,56 @@ class ProductController extends Controller
                 'product_id' => $product->id,
             ]);
             $isFavorite = true;
+            
+            // Kirim notifikasi ke pemilik produk ketika produk di-wishlist
+            // Hanya kirim jika user mewishlist produk milik user lain
+            if ($product->user_id !== $user->id) {
+                try {
+                    $wishlisterName = $user->name ?? 'Seseorang';
+                    $productName = $product->name;
+                    
+                    Log::info("Creating wishlist notification - Recipient: {$product->user_id}, Wishlister: {$user->id}, Product: {$product->id}");
+                    
+                    // Create notification in database
+                    $notification = Notification::create([
+                        'user_id' => $product->user_id, // Pemilik produk
+                        'product_id' => $product->id,
+                        'type' => 'wishlist',
+                        'title' => 'Produk Anda Diwishlist',
+                        'message' => $wishlisterName . ' menambahkan "' . $productName . '" ke wishlist',
+                        'is_read' => false,
+                    ]);
+
+                    Log::info("✅ Wishlist notification created successfully - ID: {$notification->id}, User ID: {$product->user_id}");
+
+                    // Send FCM notification
+                    try {
+                        $fcmService = new FirebaseNotificationService();
+                        $fcmResult = $fcmService->sendNotification(
+                            $product->user_id,
+                            'Produk Anda Diwishlist',
+                            $wishlisterName . ' menambahkan "' . $productName . '" ke wishlist',
+                            [
+                                'type' => 'wishlist',
+                                'product_id' => (string)$product->id,
+                            ]
+                        );
+
+                        if ($fcmResult) {
+                            Log::info("✅ FCM wishlist notification sent successfully to user {$product->user_id}");
+                        } else {
+                            Log::warning("⚠️ FCM wishlist notification failed for user {$product->user_id} (user mungkin tidak memiliki FCM token)");
+                        }
+                    } catch (\Exception $fcmException) {
+                        Log::error("❌ FCM wishlist error: " . $fcmException->getMessage());
+                    }
+                } catch (\Exception $e) {
+                    Log::error('❌ Error creating wishlist notification: ' . $e->getMessage());
+                    Log::error('Stack trace: ' . $e->getTraceAsString());
+                }
+            } else {
+                Log::info("ℹ️ Skipping wishlist notification. User {$user->id} wishlisted their own product {$product->id}");
+            }
         }
 
         return response()->json([
@@ -963,6 +1158,10 @@ class ProductController extends Controller
                 'price' => number_format($product->price, 0, ',', '.'),
                 'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
                 'description' => $product->description,
+                'address' => $product->address,
+                'latitude' => $product->latitude,
+                'longitude' => $product->longitude,
+                'location' => $product->location,
                 'whatsapp_number' => $product->whatsapp_number,
                 'seller_name' => $product->user->name ?? 'Unknown',
                 'is_favorite' => $isFavorite,
@@ -1004,7 +1203,19 @@ class ProductController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $favoriteProducts->map(function ($product) {
+            'data' => $favoriteProducts->map(function ($product) use ($user) {
+                // Get all product images
+                $allImages = ProductImage::where('product_id', $product->id)
+                    ->orderBy('sort_order')
+                    ->get();
+                $imageUrls = $allImages->map(fn($img) => [
+                    'id' => $img->id,
+                    'url' => url('storage/' . $img->path)
+                ])->toArray();
+                
+                // Check if current user is the product owner
+                $isOwnProduct = $product->user_id === $user->id;
+                
                 return [
                     'id' => $product->id,
                     'name' => $product->name,
@@ -1012,10 +1223,19 @@ class ProductController extends Controller
                     'condition' => $product->condition,
                     'price' => number_format($product->price, 0, ',', '.'),
                     'image_url' => $product->image_products ? url('storage/' . $product->image_products) : null,
+                    'images' => $imageUrls, // Multi-image with IDs
                     'description' => $product->description,
+                    'address' => $product->address,
+                    'latitude' => $product->latitude,
+                    'longitude' => $product->longitude,
+                    'location' => $product->location,
+                    'user_id' => $product->user_id, // ID pemilik produk
+                    'is_own_product' => $isOwnProduct, // Flag untuk menandai produk milik user sendiri
                     'whatsapp_number' => $product->whatsapp_number,
                     'seller_name' => $product->user->name ?? 'Unknown',
+                    'user_id' => $product->user_id, // ID pemilik produk
                     'is_favorite' => true, // Semua produk di sini adalah favorite milik user ini
+                    'is_own_product' => $isOwnProduct, // Flag untuk menandai produk milik user sendiri
                     'created_at' => $product->created_at->format('Y-m-d H:i:s'),
                 ];
             })
